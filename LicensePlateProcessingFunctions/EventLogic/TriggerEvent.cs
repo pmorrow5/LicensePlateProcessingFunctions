@@ -20,6 +20,7 @@ public class TriggerEvent
 	{
 		if (data.LicensePlateFound && !data.NeedsReview)
 		{
+			_log.LogInformation("savePlateData sent");
 			await Send("savePlateData", "PlateProcessing/TicketService", data);
 		}
 		else
