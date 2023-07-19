@@ -8,14 +8,26 @@ using Azure.Messaging.EventGrid;
 using System.IO;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using LicensePlateDataModels;
+using System.Net.Http;
 
 namespace LicensePlateProcessingFunctions
 {
 	public static class ProcessImage
 	{
+		private static HttpClient _client;
+
 		[FunctionName("ProcessImage")]
 		public static async Task Run([EventGridTrigger] EventGridEvent eventGridEvent, [Blob(blobPath: "{data.url}", access: FileAccess.Read, Connection = "plateImagesStorageConnection")] Stream incomingPlateImageBlob, ILogger log)
 		{
+			_client = _client ?? new HttpClient();
+			log.LogInformation(eventGridEvent.Data.ToString());
+			var eventDataInfo = JsonConvert.DeserializeObject<EventDataInfo>(eventGridEvent.Data.ToString());
+			
+			log.LogInformation($"File: {eventDataInfo.url}");
+			log.LogInformation($"contentType: {eventDataInfo.contentType}");
+			log.LogInformation($"contentLength: {eventDataInfo.contentLength}");
+
 			if (incomingPlateImageBlob is null)
 			{
 				log.LogWarning("Incoming blob was null, unable to process");
@@ -28,14 +40,7 @@ namespace LicensePlateProcessingFunctions
 				log.LogWarning("Incoming blob had no data (length < 1), unable to process");
 				return;
 			}
-
-			log.LogInformation(eventGridEvent.Data.ToString());
-
-			var eventDataInfo = JsonConvert.DeserializeObject<EventDataInfo>(eventGridEvent.Data.ToString());
-			log.LogInformation($"File: {eventDataInfo.url}");
-			log.LogInformation($"contentType: {eventDataInfo.contentType}");
-			log.LogInformation($"contentLength: {eventDataInfo.contentLength}");
-
+						
 			if (eventDataInfo.contentType.ToLower() != "image/jpeg"
 				&& eventDataInfo.contentType.ToLower() != "image/png")
 			{
@@ -55,7 +60,14 @@ namespace LicensePlateProcessingFunctions
 			var licensePlateText = await processor.GetLicensePlate(licensePlateImage);
 			log.LogInformation($"LicensePlateText: {licensePlateText}");
 
-			//TODO: Process the license plate info or send for review
+			// Send the details to Event Grid.
+			log.LogInformation($"Processing {eventDataInfo.url}");
+			await new TriggerEvent(log, _client).SendLicensePlateData(new LicensePlateData()
+			{
+				FileName = eventDataInfo.url,
+				LicensePlateText = licensePlateText,
+				TimeStamp = DateTime.UtcNow
+			});
 		}
 	}
 }
